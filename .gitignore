@@ -1,0 +1,48 @@
+# ================= STM32CubeMX + Keil MDK 工程忽略规则 =================
+
+# ---------- Keil MDK-ARM 构建产物 ----------
+# 编译输出目录（.o/.crf/.d/.axf/.hex/.map/.dep 等，全部由 Keil 重新生成）
+/MDK-ARM/GEC_M4/
+# Keil 用户相关工程设置（.uvoptx 为工程选项，.uvguix.* 为窗口布局，均随用户/机器变化）
+*.uvoptx
+*.uvguix.*
+# 调试配置（CubeMX 自动生成）
+DebugConfig/
+# 构建日志与列表文件
+build.log
+*.lst
+
+# ---------- 通用编译产物 ----------
+*.o
+*.crf
+*.d
+*.axf
+*.hex
+*.bin
+*.map
+*.lnp
+*.dep
+*.htm
+*.build_log.htm
+
+# ---------- 预编译静态库（STM32Cube 软件包自带，可随时从包中恢复） ----------
+Drivers/CMSIS/Lib/
+
+# ---------- 备份与临时文件 ----------
+*.bak
+*~
+*.tmp
+
+# ---------- 日志 ----------
+*.log
+
+# ---------- Windows 系统文件 ----------
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# ---------- 编辑器 / IDE ----------
+.vscode/
+.idea/
+*.suo
+*.user
