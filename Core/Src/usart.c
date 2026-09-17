@@ -102,7 +102,10 @@ void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  /* JQ8900-16P 语音模块支持两线串（UART）控制，格式固定 9600/8N1
+     （见《JQ8900-16P语音模块使用说明书V1.3》8.1 节）。
+     若日后改用其它模块或改了模块波特率，这里要同步改，并同步改 GEC_M4.ioc。 */
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;

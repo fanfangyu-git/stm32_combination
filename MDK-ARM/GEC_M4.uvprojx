@@ -621,6 +621,11 @@
               <FilePath>..\Core\Src\system_stm32f4xx.c</FilePath>
             </File>
             <File>
+              <FileName>voice.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\voice.c</FilePath>
+            </File>
+            <File>
               <FileName>zw111.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Core\Src\zw111.c</FilePath>

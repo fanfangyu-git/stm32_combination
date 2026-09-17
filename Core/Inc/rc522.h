@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file    rc522.h
-  * @brief   RC522 RFID 驱动 (SPI2, 软件CS=PB12, RST=PC0)
+  * @brief   RC522 RFID 驱动 (硬件SPI1: PB3/PB4/PB5, 软件CS=PG7, RST=PB6)
   *          仅实现：寻卡 + 防冲撞读UID，足够阶段一(刷卡开锁)使用
   ******************************************************************************
   */
@@ -12,11 +12,12 @@
 
 #include "main.h"
 
-/* 引脚：软件片选 + 复位（注意：PC0 原标签 STEP_IN1，此处复用为 RC522_RST） */
-#define RC522_CS_PORT    GPIOB
-#define RC522_CS_PIN     GPIO_PIN_12
-#define RC522_RST_PORT   GPIOC
-#define RC522_RST_PIN    GPIO_PIN_0
+/* 引脚：软件片选 PG7(U13 NRF 座 CSN 孔) + 复位 PB6(P8 摄像头座 pin13=DCMI_D5 孔)
+   SCK/MOSI/MISO = PB3/PB5/PB4（硬件 SPI1, AF5），三线经 U13 座 SCK/MOSI/MISO 孔引出 */
+#define RC522_CS_PORT    GPIOG
+#define RC522_CS_PIN     GPIO_PIN_7
+#define RC522_RST_PORT   GPIOB
+#define RC522_RST_PIN    GPIO_PIN_6
 
 /* 状态返回 */
 #define MI_OK            0

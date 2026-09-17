@@ -95,8 +95,8 @@ int main(void)
   MX_USART2_UART_Init();     /* USART2(PA2/3)：ZW111 指纹模块(57600) */
   MX_USART3_UART_Init();     /* USART3(PB10/11)：JQ8900 语音播报模块 */
   MX_I2C1_Init();            /* I2C1(PB8/PB9)：OLED 显示屏（硬件 I2C，接板载 P3 排针） */
-  MX_SPI2_Init();            /* SPI2(PB12-15)：RC522 刷卡模块（CS 软件控制 PB12，RST=PC0） */
-  MX_TIM2_Init();            /* TIM2_CH2(PB3)：舵机 PWM（50Hz，模拟开锁；PB3 从 U13 NRF 排母座 pin5=SCK 孔引出） */
+  MX_SPI1_Init();            /* SPI1(PB3/4/5)：RC522 刷卡模块，SCK/MOSI/MISO 经 U13 NRF 座引出；CS=PG7(U13 CSN 孔)、RST=PB6(P8 座 pin13) */
+  MX_TIM3_Init();            /* TIM3_CH2(PC7)：舵机 PWM（50Hz，模拟开锁；PC7 从 P8 摄像头排母座 pin9 引出） */
   /* USER CODE BEGIN 2 */
   APP_Auth_Init();   /* 初始化舵机/OLED/RC522 并创建刷卡任务（调度器启动前调用） */
   /* USER CODE END 2 */

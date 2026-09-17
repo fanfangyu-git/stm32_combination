@@ -59,7 +59,7 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, STEP_IN2_Pin|STEP_IN3_Pin|STEP_IN4_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, KEYPAD_ROW3_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOF, KEYPAD_ROW3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, KEYPAD_ROW1_Pin|KEYPAD_ROW2_Pin|KEYPAD_ROW4_Pin, GPIO_PIN_RESET);
@@ -77,7 +77,7 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PCPin PCPin PCPin (PC1/2/3 旧步进预留；PC0=RC522_RST 由 rc522.c 配) */
+  /*Configure GPIO pins : PCPin PCPin PCPin (旧步进预留 STEP_IN2/3/4；PC0 已释放，RC522_RST 改 PB6 由 rc522.c 配) */
   GPIO_InitStruct.Pin = STEP_IN2_Pin|STEP_IN3_Pin|STEP_IN4_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -96,14 +96,13 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PBPin (KEYPAD_ROW3 = PB5)
-    注：原矩阵键盘的 ROW4/COL1 曾用 PB8/PB9，现已改到 PE5/PE6（见 main.h），
-    而 PB8/PB9 改作 I2C1_SCL/I2C1_SDA（板载 IIC 总线，见 i2c.c）。 */
+  /*Configure GPIO pin : PFPin (KEYPAD_ROW3 = PF11，经 P8 摄像头座 pin10=DCMI_D2 孔
+    或 TFTLCD 座 T_MOSI 孔引出；原 PB5 让位给 RC522 的 SPI1_MOSI) */
   GPIO_InitStruct.Pin = KEYPAD_ROW3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PEPin PEPin PEPin (KEYPAD_ROW1/ROW2/ROW4 = PE0/PE1/PE5) */
   GPIO_InitStruct.Pin = KEYPAD_ROW1_Pin|KEYPAD_ROW2_Pin|KEYPAD_ROW4_Pin;

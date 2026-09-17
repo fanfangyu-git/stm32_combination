@@ -2,10 +2,10 @@
 /**
   ******************************************************************************
  * @file    servo.h
- * @brief   舵机(模拟门锁)驱动 - TIM2_CH2 @ PB3, 50Hz PWM
+ * @brief   舵机(模拟门锁)驱动 - TIM3_CH2 @ PC7, 50Hz PWM
  *          1.0ms=上锁(0°)  1.5ms=开锁(90°)
- *          刻度：TIM2@APB1 84MHz，Prescaler=83 -> 1MHz -> **1 tick = 1us**，ARR=19999 -> 20ms
- *          PB3 从开发板 U13(NRF24L01) 排母座第 5 脚(SCK 孔)引出，公头舵机可直接插排母孔
+ *          刻度：TIM3@APB1 84MHz，Prescaler=83 -> 1MHz -> **1 tick = 1us**，ARR=19999 -> 20ms
+ *          PC7 从 P8 摄像头排母座 pin9(DCMI_D1 孔)引出，公头舵机可直接插排母孔
  ******************************************************************************
   */
 /* USER CODE END Header */
@@ -13,10 +13,10 @@
 #define __SERVO_H
 
 #include "main.h"
-#include "tim.h"    /* SERVO_TIM 宏展开出 htim2，必须在此可见 */
+#include "tim.h"    /* SERVO_TIM 宏展开出 htim3，必须在此可见 */
 
-/* 舵机挂在 TIM2 通道2 (PB3，经 U13 NRF 排母座 pin5=SCK 孔引出) */
-#define SERVO_TIM       (&htim2)
+/* 舵机挂在 TIM3 通道2 (PC7，经 P8 摄像头排母座 pin9 引出) */
+#define SERVO_TIM       (&htim3)
 #define SERVO_CHANNEL   TIM_CHANNEL_2
 
 /* 角度定义（0~180，普通 SG90 的物理行程上限就是约 180°，做不到 360°）

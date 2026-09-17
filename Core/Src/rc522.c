@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file    rc522.c
-  * @brief   RC522 RFID 驱动 (SPI2, 软件CS=PB12, RST=PC0)
+  * @brief   RC522 RFID 驱动 (硬件SPI1: PB3/PB4/PB5, 软件CS=PG7, RST=PB6)
   *          精简寄存器级实现：寻卡 + 防冲撞读UID
   ******************************************************************************
   */
@@ -63,8 +63,8 @@ void RC522_WriteReg(uint8_t reg, uint8_t val)
 {
   uint8_t addr = (reg << 1) & 0x7E;
   RC522_CS_LOW();
-  HAL_SPI_Transmit(&hspi2, &addr, 1, 10);
-  HAL_SPI_Transmit(&hspi2, &val, 1, 10);
+  HAL_SPI_Transmit(&hspi1, &addr, 1, 10);
+  HAL_SPI_Transmit(&hspi1, &val, 1, 10);
   RC522_CS_HIGH();
 }
 
@@ -73,8 +73,8 @@ uint8_t RC522_ReadReg(uint8_t reg)
   uint8_t addr = ((reg << 1) & 0x7E) | 0x80;
   uint8_t val = 0;
   RC522_CS_LOW();
-  HAL_SPI_Transmit(&hspi2, &addr, 1, 10);
-  HAL_SPI_Receive(&hspi2, &val, 1, 10);
+  HAL_SPI_Transmit(&hspi1, &addr, 1, 10);
+  HAL_SPI_Receive(&hspi1, &val, 1, 10);
   RC522_CS_HIGH();
   return val;
 }
@@ -91,9 +91,9 @@ void RC522_Init(void)
 {
   GPIO_InitTypeDef g = {0};
 
-  /* 配置 CS(PB12) 与 RST(PC0) 为推挽输出 */
+  /* 配置 CS(PG7) 与 RST(PB6) 为推挽输出 */
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
   g.Mode = GPIO_MODE_OUTPUT_PP;
   g.Pull = GPIO_NOPULL;
   g.Speed = GPIO_SPEED_FREQ_HIGH;
@@ -103,9 +103,9 @@ void RC522_Init(void)
   HAL_GPIO_Init(RC522_RST_PORT, &g);
   RC522_CS_HIGH();
 
-  /* RC522 最高支持 10MHz；SPI2 在 APB1(42MHz) 下分频到 5.25MHz 更稳 */
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
-  HAL_SPI_Init(&hspi2);
+  /* RC522 最高支持 10MHz；SPI1 挂 APB2(84MHz)，16 分频 = 5.25MHz 更稳 */
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  HAL_SPI_Init(&hspi1);
 
   /* 硬件复位脉冲 */
   RC522_RST_HIGH();

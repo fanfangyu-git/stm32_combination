@@ -86,8 +86,8 @@ void Error_Handler(void);
 #define KEYPAD_COL3_GPIO_Port GPIOC
 #define KEYPAD_COL4_Pin GPIO_PIN_6
 #define KEYPAD_COL4_GPIO_Port GPIOC
-#define KEYPAD_ROW3_Pin GPIO_PIN_5
-#define KEYPAD_ROW3_GPIO_Port GPIOB
+#define KEYPAD_ROW3_Pin GPIO_PIN_11
+#define KEYPAD_ROW3_GPIO_Port GPIOF
 /* PB8 / PB9 在本板上是共享 I2C 总线 IIC_SCL / IIC_SDA（见 i2c.c），不再用作矩阵键盘；
    ROW4 / COL1 已改到空闲脚 PE5 / PE6（见 gpio.c 的 MX_GPIO_Init）。 */
 #define KEYPAD_ROW4_Pin GPIO_PIN_5

@@ -15,14 +15,15 @@
 #include "rc522.h"
 #include "oled.h"
 #include "zw111.h"
+#include "voice.h"
 #include "usart.h"
 #include "cmsis_os.h"
 #include "string.h"
 
 /* ---------------- 卡白名单：替换成你实际刷卡时串口打印出的 UID(4字节) ---------------- */
 static const uint8_t s_allowed[][4] = {
-    {0xDE, 0xAD, 0xBE, 0xEF},   /* 示例：管理员卡 */
-    {0x12, 0x34, 0x56, 0x78},   /* 示例：用户卡 */
+    {0xAB, 0x77, 0x77, 0x8E},   /* 示例：管理员卡 */ //AB77778E
+    {0x79, 0x26, 0xD4, 0xE6},   /* 示例：用户卡 */  //7926D4E6
 };
 #define ALLOWED_N  (sizeof(s_allowed) / sizeof(s_allowed[0]))
 
@@ -115,6 +116,71 @@ static void ui_line(uint8_t y, const char *zh)
   OLED_Update();
 }
 
+/* 同时更新 OLED 一行 + 播报对应语音，两个通道说同一句话 */
+static void ui_say(uint8_t y, uint16_t track, const char *zh)
+{
+  ui_line(y, zh);
+  VOICE_Play(track);
+}
+
+/* ============================================================
+   语音播报曲目号
+   ＝ JQ8900 里音频文件名的那 5 位数字（00004.mp3 -> 4）。
+
+   ⚠ 必须**连续编号**（00001、00002、00003…），中途不能跳号！
+     手册 8.4「指定曲目(07)」按**文件枚举顺序**取曲目（“指定播放当前盘符第 N 首”），
+     而手册在「组合播放(1B)」一节里明确对比说：用文件名播「比文件序[号]更准确、
+     不[受]顺序限制」——反过来说明 07 指令是**受顺序限制**的。
+     所以只有当“文件名里的数字 == 它在盘里的第几个”时，两者才一致；
+     一旦跳号（比如 00003 后面直接是 00010），VOICE;10 播到的就是第 10 个文件，
+     而不是 00010.mp3 —— 表现就是“发了 x 却对不上号”。
+
+     因此本表按"上表顺序"连续排 1~19，与磁盘上的 00001.mp3~00019.mp3 一一对应。
+     以后加内容只能在末尾往后顺延，不能插队、不能跳号。
+   ============================================================ */
+#define V_TRACK_BOOT          1     /* 00001.mp3 系统启动完成，门禁已就绪 */
+#define V_TRACK_STANDBY       2     /* 00002.mp3 请刷卡或指纹          （已定义，暂未接入） */
+#define V_TRACK_LOCKED        3     /* 00003.mp3 门已关闭，系统锁定    （已定义，暂未接入） */
+#define V_TRACK_CARD_OK       4     /* 00004.mp3 刷卡成功，门已打开 */
+#define V_TRACK_FP_OK         5     /* 00005.mp3 指纹验证成功，门已打开 */
+#define V_TRACK_FACE_OK       6     /* 00006.mp3 人脸识别成功，门已打开 */
+#define V_TRACK_PWD_OK        7     /* 00007.mp3 密码正确，门已打开    （已定义，暂未接入） */
+#define V_TRACK_DENY          8     /* 00008.mp3 验证失败，请重试      （已定义，暂未接入） */
+#define V_TRACK_UNKNOWN_CARD  9     /* 00009.mp3 未知卡片，拒绝通行 */
+#define V_TRACK_FP_NOMATCH   10     /* 00010.mp3 指纹不匹配，请重试 */
+#define V_TRACK_FP_UNKNOWN   11     /* 00011.mp3 该指纹不在名册内 */
+#define V_TRACK_ENROLL_START 12     /* 00012.mp3 进入指纹录入模式      （已定义，暂未接入） */
+#define V_TRACK_PUT_FINGER   13     /* 00013.mp3 请将手指放在传感器上 */
+#define V_TRACK_LIFT_FINGER  14     /* 00014.mp3 请抬起手指 */
+#define V_TRACK_PUT_AGAIN    15     /* 00015.mp3 请再次放上同一根手指 */
+#define V_TRACK_ENROLL_OK    16     /* 00016.mp3 指纹录入成功 */
+#define V_TRACK_ENROLL_FAIL  17     /* 00017.mp3 指纹录入失败，请重试 */
+#define V_TRACK_INTRUDER     18     /* 00018.mp3 警告，检测到陌生人    （已定义，暂未接入） */
+#define V_TRACK_DEV_FAULT    19     /* 00019.mp3 设备异常，请联系管理员（已定义，暂未接入） */
+
+/* 曲目号 -> OLED 中文详情。auth_open()/auth_denied() 共用这一份表，
+   避免"屏幕上写的"和"喇叭里念的"不一致。 */
+typedef struct { uint16_t track; const char *zh; } track_text_t;
+static const track_text_t s_trackText[] = {
+    { V_TRACK_CARD_OK,      "刷卡成功" },
+    { V_TRACK_FP_OK,        "指纹成功" },
+    { V_TRACK_FACE_OK,      "人脸成功" },
+    { V_TRACK_PWD_OK,       "验证成功" },
+    { V_TRACK_DENY,         "请重试"   },
+    { V_TRACK_UNKNOWN_CARD, "未知卡片" },
+    { V_TRACK_FP_NOMATCH,   "指纹不符" },
+    { V_TRACK_FP_UNKNOWN,   "指纹未知" },
+    { V_TRACK_DEV_FAULT,    "设备异常" },
+    { V_TRACK_INTRUDER,     "警告"     },
+};
+
+static const char *track_zh(uint16_t track)
+{
+  for (uint8_t i = 0; i < sizeof(s_trackText) / sizeof(s_trackText[0]); i++)
+    if (s_trackText[i].track == track) return s_trackText[i].zh;
+  return NULL;
+}
+
 /* ============================================================
    分步录入指纹（不用模组的 AutoEnroll 黑盒——它只在最后回一个确认码，
    中途无法给提示，手指没按上就直接回 0x26 超时）。
@@ -158,7 +224,7 @@ static uint8_t fp_enroll(uint16_t pageId, uint8_t times)
   uint8_t r;
 
   ui_line(OLED_LINE1, "录入指纹中");
-  ui_line(OLED_LINE2, "请放手指");
+  ui_say(OLED_LINE2, V_TRACK_PUT_FINGER, "请放手指");
   ui_line(OLED_LINE3, NULL);
 
   /* 第 1 次：采图 -> 特征存入缓冲区 1 */
@@ -170,10 +236,10 @@ static uint8_t fp_enroll(uint16_t pageId, uint8_t times)
   /* 第 2..times 次：抬手 -> 再采图 -> 特征存缓冲区 2 -> 合并回缓冲区 1 */
   for (uint8_t n = 2; n <= times; n++)
   {
-    ui_line(OLED_LINE2, "请抬手指");
+    ui_say(OLED_LINE2, V_TRACK_LIFT_FINGER, "请抬手指");
     fp_wait_lift(FP_LIFT_TIMEOUT_MS);
 
-    ui_line(OLED_LINE2, "请再放一次");
+    ui_say(OLED_LINE2, V_TRACK_PUT_AGAIN, "请再放一次");
     r = fp_capture(FP_CAP_TIMEOUT_MS);
     if (r != ZW111_OK) return r;
     r = ZW111_GenChar(2);
@@ -253,6 +319,52 @@ static void comm_handle(char *line)
     return;
   }
 
+  /* ---- VOICE;<曲目号>：单独测试语音播报（1~65535；填 0 = 停止播放）----
+     曲目号就是音频文件名里的 5 位数字，如 00010.mp3 -> 发 VOICE;10。
+     VOL;<0~30> 可以调音量。两条都只测硬件链路，不碰认证流程。 */
+  if (strncmp(line, "VOICE;", 6) == 0)
+  {
+    const char *q = line + 6;
+    uint32_t tr = 0;
+    if (*q < '0' || *q > '9') { DBG("VOICE: bad track\r\n"); return; }
+    while (*q >= '0' && *q <= '9') { tr = tr * 10u + (uint32_t)(*q - '0'); q++; }
+    if (tr > 65535u) { DBG("VOICE: use 1..65535 (0=stop)\r\n"); return; }
+    if (tr == 0) { DBG("VOICE stop\r\n"); VOICE_Stop(); return; }
+    DBG("VOICE "); DBG_U16((uint16_t)tr); DBG("\r\n");
+    VOICE_Play((uint16_t)tr);
+    return;
+  }
+
+  /* ---- VOL;<0~30>：设置播报音量 ---- */
+  if (strncmp(line, "VOL;", 4) == 0)
+  {
+    const char *q = line + 4;
+    uint16_t v = 0;
+    if (*q < '0' || *q > '9') { DBG("VOL: bad value\r\n"); return; }
+    while (*q >= '0' && *q <= '9') { v = (uint16_t)(v * 10 + (uint16_t)(*q - '0')); q++; }
+    if (v > VOICE_VOL_MAX) { DBG("VOL: use 0..30\r\n"); return; }
+    DBG("VOL "); DBG_U16(v); DBG("\r\n");
+    VOICE_SetVolume((uint8_t)v);
+    return;
+  }
+
+  /* ---- VDISC;<0|1|2>：切换模块盘符（0=U盘 1=TF卡 2=FLASH）----
+     07 指定曲目播的是"当前盘符"。文件拷在 FLASH 里却从 U 盘播，就会完全对不上号。
+     手册建议切换前先查询当前盘符，但查询要读模块回复（本驱动暂未做接收），
+     所以这里先给个"盲切"，够用来验证盘符假设。 */
+  if (strncmp(line, "VDISC;", 6) == 0)
+  {
+    const char *q = line + 6;
+    if (*q < '0' || *q > '2' || q[1] != '\0')
+    {
+      DBG("VDISC: use 0=USB 1=SD 2=FLASH\r\n");
+      return;
+    }
+    DBG("VDISC "); DBG_U16((uint16_t)(*q - '0')); DBG("\r\n");
+    VOICE_SwitchDisc((uint8_t)(*q - '0'));
+    return;
+  }
+
   /* ---- PING：重测指纹模组握手，不用重启板子 ---- */
   if (strncmp(line, "PING", 4) == 0)
   {
@@ -286,12 +398,14 @@ static void comm_handle(char *line)
   if (ack == ZW111_OK)
   {
     OLED_ShowChinese(0, OLED_LINE1, "录入成功");
+    VOICE_Play(V_TRACK_ENROLL_OK);
     DBG("ENROLL OK\r\n");
   }
   else
   {
     OLED_ShowChinese(0, OLED_LINE1, "录入失败");
     OLED_ShowChinese(0, OLED_LINE2, "请重试");
+    VOICE_Play(V_TRACK_ENROLL_FAIL);
     DBG("ENROLL FAIL 0x"); DBG_Hex2(ack); DBG("\r\n");
   }
   OLED_ShowChinese(0, OLED_LINE3, "指纹就绪");
@@ -350,14 +464,18 @@ void StartCommTask(void *argument)
 }
 
 /* ---------------- 共用开门/拒绝动作（刷卡与指纹共用） ----------------
-   zh_detail: 全中文详情(显示在 LINE2)，如 “刷卡成功”/“指纹成功”/“人脸成功” */
-static void auth_open(const char *zh_detail)
+   参数是**语音曲目号**：OLED 第二行的中文详情从 track_zh() 取，
+   所以屏幕上写的和喇叭里念的永远是同一件事。 */
+static void auth_open(uint16_t track)
 {
+  const char *zh = track_zh(track);
+
   OLED_ClearArea(0, OLED_LINE1, 128, 16);
   OLED_ClearArea(0, OLED_LINE2, 128, 16);
   OLED_ShowChinese(0, OLED_LINE1, "已开锁");
-  OLED_ShowChinese(0, OLED_LINE2, zh_detail);
+  OLED_ShowChinese(0, OLED_LINE2, zh ? zh : "验证成功");
   OLED_Update();
+  VOICE_Play(track);
   DBG("OPEN\r\n");
   SERVO_Open();
   osDelay(OPEN_HOLD_MS);
@@ -365,13 +483,16 @@ static void auth_open(const char *zh_detail)
   ui_standby();
 }
 
-static void auth_denied(const char *zh_detail)
+static void auth_denied(uint16_t track)
 {
+  const char *zh = track_zh(track);
+
   OLED_ClearArea(0, OLED_LINE1, 128, 16);
   OLED_ClearArea(0, OLED_LINE2, 128, 16);
   OLED_ShowChinese(0, OLED_LINE1, "验证失败");
-  OLED_ShowChinese(0, OLED_LINE2, zh_detail);
+  OLED_ShowChinese(0, OLED_LINE2, zh ? zh : "请重试");
   OLED_Update();
+  VOICE_Play(track);
   DBG("DENIED\r\n");
   osDelay(1500);
   ui_standby();
@@ -389,6 +510,7 @@ void APP_Auth_Init(void)
   SERVO_Init();
   OLED_Init();
   RC522_Init();
+  VOICE_Init();   /* 把 JQ8900 音量拉回默认值（纯发送，没接模块也不阻塞） */
 
   /* 上电画面（中文）—— 先推上去，别让指纹模组探活（会重试几百 ms）拖住屏幕 */
   OLED_Clear();
@@ -413,6 +535,12 @@ void APP_Auth_Init(void)
 
   static const osThreadAttr_t matt = { .name = "CommTask", .stack_size = 1024, .priority = osPriorityNormal };
   osThreadNew(StartCommTask, NULL, &matt);
+
+  /* ---- 开机播报 ----
+     放在最后、并且先等 400ms：JQ8900 和指纹模组一样上电需要时间才响应，
+     太早发会丢帧（掉电后第一次尤其明显）。 */
+  HAL_Delay(400);
+  VOICE_Play(V_TRACK_BOOT);
 }
 
 /* ---------------- 刷卡任务 ---------------- */
@@ -426,8 +554,12 @@ void StartCardTask(void *argument)
   {
     if (RC522_Check(uid, &uid_len) == 0)
     {
-      if (uid_match(uid)) { DBG("CARD OK\r\n"); auth_open("刷卡成功"); }
-      else auth_denied("未知卡片");
+      /* 每次刷卡都打印 UID(4字节/8位十六进制)，用于填白名单 s_allowed */
+      DBG("UID: ");
+      DBG_Hex2(uid[0]); DBG_Hex2(uid[1]); DBG_Hex2(uid[2]); DBG_Hex2(uid[3]);
+      DBG("\r\n");
+      if (uid_match(uid)) { DBG("CARD OK\r\n"); auth_open(V_TRACK_CARD_OK); }
+      else auth_denied(V_TRACK_UNKNOWN_CARD);
     }
     osDelay(POLL_MS);
   }
@@ -460,12 +592,12 @@ void StartFPTask(void *argument)
           if (ZW111_Search(1, 0, ZW111_CAPACITY, &pageId, &score) == ZW111_OK)
           {
             const char *who = fp_lookup(pageId, &role);
-            if (who) { DBG("FP: "); DBG(who); DBG("\r\n"); auth_open("指纹成功"); }
-            else auth_denied("指纹未知");                 /* 命中库但不在用户表 */
+            if (who) { DBG("FP: "); DBG(who); DBG("\r\n"); auth_open(V_TRACK_FP_OK); }
+            else auth_denied(V_TRACK_FP_UNKNOWN);         /* 命中库但不在用户表 */
           }
           else
           {
-            auth_denied("指纹不符");                      /* 库里没有 */
+            auth_denied(V_TRACK_FP_NOMATCH);              /* 库里没有 */
           }
         }
       }
@@ -480,14 +612,5 @@ void StartFPTask(void *argument)
 void AUTH_OpenExternal(const char *src)
 {
   (void)src;
-  OLED_ClearArea(0, OLED_LINE1, 128, 16);
-  OLED_ClearArea(0, OLED_LINE2, 128, 16);
-  OLED_ShowChinese(0, OLED_LINE1, "已开锁");
-  OLED_ShowChinese(0, OLED_LINE2, "人脸成功");
-  OLED_Update();
-  DBG("FACE OPEN\r\n");
-  SERVO_Open();
-  osDelay(OPEN_HOLD_MS);
-  SERVO_Close();
-  ui_standby();
+  auth_open(V_TRACK_FACE_OK);   /* 复用同一条开门链路：OLED + 语音 + 舵机 + 自动落锁 */
 }
