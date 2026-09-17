@@ -75,17 +75,30 @@ static int zw_recv_frame(uint8_t *confirm, uint8_t *ret, uint8_t *retlen, uint32
   return 0;
 }
 
-/* ---------------- 对外 API ---------------- */
-void ZW111_Init(void)
+/* ---------------- 对外 API ----------------
+   返回握手确认码：ZW111_OK(0x00)=模组在线；0xFF=无应答（没接 / 波特率不对 / TX-RX 没交叉 / 总线被抢）。
+   注意：**单次握手在刚上电时很容易扑空**——模组自身也要启动时间，且上电后会先
+   主动发 0x55。所以这里等一小会儿再探，失败就重试几次。 */
+#define ZW111_PROBE_TRIES   3
+
+uint8_t ZW111_Init(void)
 {
-  /* 模组上电会主动发 0x55 握手；这里发一次 HandShake 探活，
-     即便没接模组也只是超时返回，不影响后续任务创建。 */
-  ZW111_HandShake();
+  uint8_t ack = 0xFF;
 
   /* 必须用 HAL_Delay 而非 osDelay：本函数经 APP_Auth_Init() 在
      osKernelStart() 之前调用，此刻 pxCurrentTCB 仍为 NULL，
      vTaskDelay 会解引用空指针（tasks.c prvAddCurrentTaskToDelayedList）。 */
+  HAL_Delay(100);                        /* 给模组一点上电稳定时间 */
+
+  for (uint8_t i = 0; i < ZW111_PROBE_TRIES; i++)
+  {
+    ack = ZW111_HandShake();
+    if (ack != 0xFF) break;              /* 只要有应答就采纳 */
+    HAL_Delay(200);
+  }
+
   HAL_Delay(50);
+  return ack;
 }
 
 uint8_t ZW111_HandShake(void)
@@ -109,6 +122,16 @@ uint8_t ZW111_GenChar(uint8_t bufId)
   uint8_t confirm, ret[2]; uint8_t rl;
   uint8_t p[1] = { bufId };
   zw_send(0x02, p, 1);
+  if (zw_recv_frame(&confirm, ret, &rl, ZW111_UART_TIMEOUT)) return 0xFF;
+  return confirm;
+}
+
+/* 合并特征(生成模板)：把缓冲区1、2 的特征融合，模板存回缓冲区1。
+   分步录入靠它把多次按压逐轮合并成模板；确认码 0x0A = 合并失败(两次按的不是同一根手指)。 */
+uint8_t ZW111_RegModel(void)
+{
+  uint8_t confirm, ret[2]; uint8_t rl;
+  zw_send(0x05, NULL, 0);
   if (zw_recv_frame(&confirm, ret, &rl, ZW111_UART_TIMEOUT)) return 0xFF;
   return confirm;
 }

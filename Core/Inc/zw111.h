@@ -36,10 +36,11 @@
    不接也能用——默认走 GetImage 轮询。 */
 /* #define ZW111_USE_TOUCH_PIN */
 
-void    ZW111_Init(void);
+uint8_t ZW111_Init(void);                                       /* 返回握手确认码：00=正常，FF=模组无应答 */
 uint8_t ZW111_HandShake(void);                                  /* 探活，返回确认码 */
 uint8_t ZW111_GetImage(void);                                   /* 00=采到指纹图, 02=无手指 */
 uint8_t ZW111_GenChar(uint8_t bufId);                           /* 生成特征到缓冲区 bufId */
+uint8_t ZW111_RegModel(void);                                   /* 合并特征：缓冲区1+2 -> 模板(存回缓冲区1) */
 uint8_t ZW111_Search(uint8_t bufId, uint16_t startPage,
                      uint16_t pageNum, uint16_t *pageId, uint16_t *score);
 uint8_t ZW111_StoreChar(uint8_t bufId, uint16_t pageId);

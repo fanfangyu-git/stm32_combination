@@ -70,8 +70,8 @@ void Error_Handler(void);
 #define LED0_GPIO_Port GPIOF
 #define LED1_Pin GPIO_PIN_10
 #define LED1_GPIO_Port GPIOF
-#define STEP_IN1_Pin GPIO_PIN_0
-#define STEP_IN1_GPIO_Port GPIOC
+/* PC0 在 CubeMX(.ioc) 中已更名为 RC522_RST（GPIO_Output），
+   复位脚由 rc522.c 用 RC522_RST_PORT/PIN 直接配置，此处不再保留 STEP_IN1 宏。 */
 #define STEP_IN2_Pin GPIO_PIN_1
 #define STEP_IN2_GPIO_Port GPIOC
 #define STEP_IN3_Pin GPIO_PIN_2
@@ -88,10 +88,12 @@ void Error_Handler(void);
 #define KEYPAD_COL4_GPIO_Port GPIOC
 #define KEYPAD_ROW3_Pin GPIO_PIN_5
 #define KEYPAD_ROW3_GPIO_Port GPIOB
-#define KEYPAD_ROW4_Pin GPIO_PIN_8
-#define KEYPAD_ROW4_GPIO_Port GPIOB
-#define KEYPAD_COL1_Pin GPIO_PIN_9
-#define KEYPAD_COL1_GPIO_Port GPIOB
+/* PB8 / PB9 在本板上是共享 I2C 总线 IIC_SCL / IIC_SDA（见 i2c.c），不再用作矩阵键盘；
+   ROW4 / COL1 已改到空闲脚 PE5 / PE6（见 gpio.c 的 MX_GPIO_Init）。 */
+#define KEYPAD_ROW4_Pin GPIO_PIN_5
+#define KEYPAD_ROW4_GPIO_Port GPIOE
+#define KEYPAD_COL1_Pin GPIO_PIN_6
+#define KEYPAD_COL1_GPIO_Port GPIOE
 #define KEYPAD_ROW1_Pin GPIO_PIN_0
 #define KEYPAD_ROW1_GPIO_Port GPIOE
 #define KEYPAD_ROW2_Pin GPIO_PIN_1

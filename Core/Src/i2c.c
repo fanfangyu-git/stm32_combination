@@ -68,10 +68,15 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
 
     __HAL_RCC_GPIOB_CLK_ENABLE();
     /**I2C1 GPIO Configuration
-    PB6     ------> I2C1_SCL
-    PB7     ------> I2C1_SDA
-    */
-    GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
+    PB8     ------> I2C1_SCL
+    PB9     ------> I2C1_SDA
+
+    注意：按 GEC-M4 原理图（CPU 页），板上名为 IIC_SCL / IIC_SDA 的共享 I2C 总线
+    接在 **PB8 / PB9**，不是默认的 PB6 / PB7——PB6/PB7 在本板上走的是摄像头的
+    DCMI_D5 / DCMI_VSYNC。板载 AT24C02(0x50)、MPU6050(0x68)、WM8978(0x1A) 与
+    对外 4 针排针 P3(VDD3V3/GND/IIC_SCL/IIC_SDA) 都挂在这条总线上，OLED 应插 P3。
+    若改用别的引脚对，这里和 GEC_M4.ioc 必须同步修改。 */
+    GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -98,12 +103,12 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     __HAL_RCC_I2C1_CLK_DISABLE();
 
     /**I2C1 GPIO Configuration
-    PB6     ------> I2C1_SCL
-    PB7     ------> I2C1_SDA
+    PB8     ------> I2C1_SCL
+    PB9     ------> I2C1_SDA
     */
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_6);
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_8);
 
-    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_7);
+    HAL_GPIO_DeInit(GPIOB, GPIO_PIN_9);
 
   /* USER CODE BEGIN I2C1_MspDeInit 1 */
 
