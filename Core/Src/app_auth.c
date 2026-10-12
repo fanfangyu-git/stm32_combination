@@ -6,7 +6,8 @@
   *          - CardTask 轮询 RC522 刷卡
   *          - FPTask   轮询 ZW111 指纹(1:N 比对)
   *          - 任一合法来源 -> 舵机开锁2.5s自动落锁；陌生 -> 拒绝+OLED
-  *          - 后续阶段二: PC 下发 FACE_OK;UID;ROLE 由 AUTH_OpenExternal() 触发
+  *          - CommTask 接收上位机(Qt)指令：FACE_OK;<id>;<ROLE> 触发开锁，
+  *            HOST;PING 做心跳应答，并回传 DOOR;OPEN / DOOR;CLOSED 门锁状态
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -50,9 +51,9 @@ static const fp_user_t s_fpUsers[] = {
 #define OLED_LINE3     48      /* 第 4 行，像素行 48 */
 
 /* ---------------- 串口日志：仅记录真实的开门/拒绝事件 ---------------- */
-static void DBG(const char *s)
+static void DBG(const char *s)//类似调试debug的效果
 {
-  HAL_UART_Transmit(&huart1, (uint8_t *)s, (uint16_t)strlen(s), 200);
+  HAL_UART_Transmit(&huart1, (uint8_t *)s, (uint16_t)strlen(s), 200);//调用这个函数时，当前代码停在这里，一直轮询检查发送标志，直到发完 / 超时才往下跑
 }
 
 /* 一字节按两位十六进制输出（上电自检 / 录入结果要打确认码） */
@@ -255,9 +256,15 @@ static uint8_t fp_enroll(uint16_t pageId, uint8_t times)
 
 /* ============================================================
    USART1 指令通道（中断接收，不占用任务轮询）
-   指令：
+   上位机(Qt)下行指令：
+     FACE_OK;<id>;<ROLE>  人脸识别命中，开门
+     HOST;PING            心跳请求，回 HOST;PONG
+   调试指令（串口助手手敲）：
      ENROLL;<id>   录入 <id> 号指纹（按压 3 次，OLED 逐步提示）
      PING          重测指纹模组握手（不用重启板子）
+     SERVO;<角> / VOICE;<曲> / VOL;<量> / VDISC;<盘> / VLOOP;<模式>
+   上行回传（给上位机）：
+     DOOR;OPEN / DOOR;CLOSED   门锁状态（auth_open() 里发出）
    自检结果与录入结果都回打在同一个串口上。
    ⚠ 与模组对话期间必须独占 USART2：fp_take_bus() / fp_release_bus()
    ============================================================ */
@@ -306,6 +313,31 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* 执行一条指令（跑在 CommTask 上下文，允许阻塞和 osDelay） */
 static void comm_handle(char *line)
 {
+  /* ---- FACE_OK;<id>;<ROLE>：上位机(Qt)人脸识别命中，请求开门 ----
+     这是 AUTH_OpenExternal() 预留钩子的最终接入点：认证在 PC 侧完成，
+     开门动作仍由本板执行（策略边界与计划书一致）。
+     id   = 上位机人员库主键（仅用于日志，本板不需要人员表）
+     ROLE = USER / ADMIN（阶段四做管理员双因子时再细分，现在只透传打印） */
+  if (strncmp(line, "FACE_OK;", 8) == 0)
+  {
+    const char *q = line + 8;
+    uint16_t id = 0;
+    while (*q >= '0' && *q <= '9') { id = (uint16_t)(id * 10 + (uint16_t)(*q - '0')); q++; }
+    if (*q == ';') q++;                       /* 跳到 ROLE 字段 */
+    DBG("FACE_OK "); DBG_U16(id); DBG(" "); DBG(q); DBG("\r\n");
+    AUTH_OpenExternal(q);                     /* OLED + 语音 + 舵机 + 自动落锁 */
+    return;
+  }
+
+  /* ---- HOST;PING：上位机心跳请求 ----
+     ⚠ 与下面的 PING 区分开：PING 的原义是「重测 ZW111 指纹模组握手」，
+     是调试指纹用的；这条只做连通性应答，两者不要混用。 */
+  if (strncmp(line, "HOST;PING", 9) == 0)
+  {
+    DBG("HOST;PONG\r\n");
+    return;
+  }
+
   /* ---- SERVO;<角度>：单独测试舵机（0~180），不依赖指纹，用来隔离硬件/供电问题 ---- */
   if (strncmp(line, "SERVO;", 6) == 0)
   {
@@ -362,6 +394,20 @@ static void comm_handle(char *line)
     }
     DBG("VDISC "); DBG_U16((uint16_t)(*q - '0')); DBG("\r\n");
     VOICE_SwitchDisc((uint8_t)(*q - '0'));
+    return;
+  }
+
+  /* ---- VLOOP;<0~7>：设置播放模式（0=全盘循环 1=单曲循环 2=单曲停止 3=全盘随机
+     4=目录循环 5=目录随机 6=目录顺序 7=顺序播放）----
+     用来在线试出「单曲停止」到底是 02 还是 03（手册 §8.3 表写 02，§8.4 例子写 03，
+     自相矛盾）。试法：发 VLOOP;2 后再发 VOICE;4 听一句，若播完还继续往下播，
+     换个值再试；哪次播完就安静了，就是它。不用重编固件。 */
+  if (strncmp(line, "VLOOP;", 6) == 0)
+  {
+    const char *q = line + 6;
+    if (*q < '0' || *q > '7' || q[1] != '\0') { DBG("VLOOP: use 0..7\r\n"); return; }
+    DBG("VLOOP "); DBG_U16((uint16_t)(*q - '0')); DBG("\r\n");
+    VOICE_SetPlayMode((uint8_t)(*q - '0'));
     return;
   }
 
@@ -478,8 +524,12 @@ static void auth_open(uint16_t track)
   VOICE_Play(track);
   DBG("OPEN\r\n");
   SERVO_Open();
+  /* 回传门锁状态给上位机（Qt 侧据此写 door_open 事件并入库）。
+     单次 Transmit 一次发完，尽量减少与其它任务打印交错的窗口。 */
+  DBG("DOOR;OPEN\r\n");
   osDelay(OPEN_HOLD_MS);
   SERVO_Close();
+  DBG("DOOR;CLOSED\r\n");
   ui_standby();
 }
 
@@ -608,9 +658,11 @@ void StartFPTask(void *argument)
   }
 }
 
-/* ---------------- 预留：PC(Qt)下发 FACE_OK;UID;ROLE 指令时调用 ---------------- */
+/* ---------------- 上位机(Qt)下发 FACE_OK;id;ROLE 时调用（comm_handle 里已接入） ----------------
+   复用同一条开门链路：OLED + 语音 + 舵机 + 自动落锁 + DOOR 状态回传。
+   src 为 ROLE 字段（USER/ADMIN），本板暂不据此区分策略。 */
 void AUTH_OpenExternal(const char *src)
 {
   (void)src;
-  auth_open(V_TRACK_FACE_OK);   /* 复用同一条开门链路：OLED + 语音 + 舵机 + 自动落锁 */
+  auth_open(V_TRACK_FACE_OK);
 }

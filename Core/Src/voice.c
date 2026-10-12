@@ -6,6 +6,9 @@
   *          帧：0xAA + 指令类 + 数据长度 + 数据… + 校验和
   *          校验和 = 前面所有字节之和的低 8 位（已用手册三个例子核对：
   *                   AA+07+02+00+08=BB  AA+13+01+14=D2  AA+16+03+00+00+09=CC）
+  *          ⚠ 播放模式陷阱：模块内部存着播放模式，若是「全盘循环/目录循环」，
+  *            07 指定曲目播完会**自动接着播下一个文件**。本驱动在每次播报前
+  *            先发 停止(04) + 设置循环模式(18)=单曲停止，见 VOICE_Play()。
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -27,6 +30,7 @@
 #define VC_VOL_UP          0x14    /* 音量加 */
 #define VC_VOL_DOWN        0x15    /* 音量减 */
 #define VC_INSERT_TRACK    0x16    /* 指定曲目插播：AA 16 03 <盘符> <高> <低> SM */
+#define VC_SET_MODE        0x18    /* 设置循环模式：AA 18 01 <模式> SM */
 #define VC_SWITCH_DISC     0x0B    /* 切换到指定盘符：AA 0B 01 <盘符> SM（0=U盘 1=TF卡 2=FLASH） */
 
 /* 组帧并发送：payload 是「起始码 … 最后一个数据字节」，函数自动追加校验和。
@@ -60,16 +64,39 @@ static void voice_cmd0(uint8_t cmd)
 
 void VOICE_Init(void)
 {
-  /* 模块自己会记住音量，这里只是把它拉回一个合适的默认值。
+  /* 模块自己会记住音量和播放模式，这里只是把它们拉回我们要的值。
      没接模块时也只是把几个字节发进空气，不会阻塞或报错。 */
   VOICE_SetVolume(VOICE_DEFAULT_VOL);
+  VOICE_SetPlayMode(VOICE_ONESHOT_MODE);   /* 关键：锁成单曲停止 */
 }
 
 void VOICE_Play(uint16_t track)
 {
   uint8_t p[5] = { VOICE_START, VC_PLAY_TRACK, 0x02,
                    (uint8_t)(track >> 8), (uint8_t)(track & 0xFF) };
+
+  /* 播报前先"停止 + 锁单曲停止"，共 3 帧≈20 字节 @9600 ≈ 21ms。
+     为什么必须做：
+       1) 模块内部存着播放模式，若是全盘循环(00)/目录循环(04)，07 播完当前曲目后
+          它会自己接着播下一个文件 —— 即"能响应操作，但过后不受控地继续播"；
+       2) 先把上一句停掉，避免上一句没播完就叠上新的（也顺手清掉插播残留状态）。
+     代价是每次播报多两个短帧，相对语音本身几百毫秒~数秒可忽略。 */
+  voice_cmd0(VC_STOP);
+  VOICE_SetPlayMode(VOICE_ONESHOT_MODE);
   voice_send(p, 5);
+}
+
+void VOICE_SetPlayMode(uint8_t mode)
+{
+  uint8_t p[4];
+
+  if (mode > VOICE_MODE_ALL_SEQ_STOP) mode = VOICE_ONESHOT_MODE;
+
+  p[0] = VOICE_START;
+  p[1] = VC_SET_MODE;
+  p[2] = 0x01;                 /* 数据长度 = 1 */
+  p[3] = mode;
+  voice_send(p, 4);
 }
 
 void VOICE_InsertPlay(uint16_t track, uint8_t disc)
