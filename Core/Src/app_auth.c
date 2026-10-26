@@ -509,11 +509,49 @@ void StartCommTask(void *argument)
   }
 }
 
+/* ============================================================
+   开门/拒绝流程的独占闸门
+   ------------------------------------------------------------
+   为什么需要：auth_open() 里 osDelay(OPEN_HOLD_MS) 会阻塞 2.5s，
+   这期间任务处于 Blocked 态、让出 CPU，而同优先级的另外两个任务
+   照常运行。auth_open() 本身没有「是否已在执行」的概念，于是指纹
+   可以在刷卡那条还睡着的时候再进来一次，两条流程同时操作舵机和串口：
+     - 先到期的那个先 SERVO_Close()，把后一次的开门时间提前掐断
+     - DOOR;OPEN / DOOR;CLOSED 各上报两次，上位机事件表重复记一条
+     - 屏幕被先到期的 ui_standby() 刷回「已锁定」，可门其实还开着
+   这里用一把闸门把所有「独占人机通道(OLED+语音+舵机)」的流程串起来，
+   后到者直接丢弃——门禁场景下重复的开门请求本就无意义。
+
+   auth_denied() 也走同一把闸门：它同样独占 OLED 和语音。若不拦，
+   门开着时刷一张非法卡，屏幕会被改写成「验证失败」并随后刷回待机，
+   造成屏幕显示与实际门锁状态不一致。
+   ============================================================ */
+static volatile uint8_t s_authBusy = 0;    /* 1 = 有流程正在占用人机通道 */
+
+/* 拿闸门：成功返回 1；已有流程在跑返回 0（调用方放弃本次动作）。
+   读改写在临界区内完成——tick 中断可能正好插在「判断」与「置位」之间，
+   一旦在那被切走，另一个任务就会看到 s_authBusy 仍是 0 而一同进入。 */
+static uint8_t auth_lock(void)
+{
+  uint8_t ok = 1;
+  taskENTER_CRITICAL();
+  if (s_authBusy) ok = 0; else s_authBusy = 1;
+  taskEXIT_CRITICAL();
+  return ok;
+}
+
+static void auth_unlock(void)
+{
+  s_authBusy = 0;
+}
+
 /* ---------------- 共用开门/拒绝动作（刷卡与指纹共用） ----------------
    参数是**语音曲目号**：OLED 第二行的中文详情从 track_zh() 取，
    所以屏幕上写的和喇叭里念的永远是同一件事。 */
 static void auth_open(uint16_t track)
 {
+  if (!auth_lock()) return;              /* 已有开门/拒绝流程在跑，本次忽略 */
+
   const char *zh = track_zh(track);
 
   OLED_ClearArea(0, OLED_LINE1, 128, 16);
@@ -531,10 +569,14 @@ static void auth_open(uint16_t track)
   SERVO_Close();
   DBG("DOOR;CLOSED\r\n");
   ui_standby();
+
+  auth_unlock();                         /* 门已落锁，释放人机通道 */
 }
 
 static void auth_denied(uint16_t track)
 {
+  if (!auth_lock()) return;              /* 不打断正在进行的开门/拒绝流程 */
+
   const char *zh = track_zh(track);
 
   OLED_ClearArea(0, OLED_LINE1, 128, 16);
@@ -546,6 +588,8 @@ static void auth_denied(uint16_t track)
   DBG("DENIED\r\n");
   osDelay(1500);
   ui_standby();
+
+  auth_unlock();                         /* 提示播完，释放人机通道 */
 }
 
 /* ---------------- 初始化 + 建任务 ----------------

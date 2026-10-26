@@ -125,7 +125,10 @@ void StartDefaultTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-
+void vApplicationIdleHook(void)
+{
+  __WFI();      /* 没活干就睡，任何中断都能唤醒 */
+}
 /* USER CODE END Application */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
